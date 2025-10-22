@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-DEBUG = True
+DEBUG = False
 """
 faiss_topk_search.py — コーパスの全チャンクを FAISS にインデックス化し、
 長文クエリ（チャンク化）から類似 Top-K 文書の (doc_id, score) を返す。
@@ -307,9 +307,6 @@ def build_corpus_index(
 
     # 1パスで順次エンコード（巨大コーパスでは適宜分割追加に変更可）
     for di, fname in enumerate(files):
-        if DEBUG:
-            if di == 10:
-                break
         path = os.path.join(corpus_dir, fname)
         text = read_text(path)
         chunks = chunk_by_tokens(text, tokenize_fn, max_tokens, stride_tokens)
