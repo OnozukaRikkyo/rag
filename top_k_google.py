@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-DEBUG = False
+DEBUG = True
 """
 faiss_topk_search.py — コーパスの全チャンクを FAISS にインデックス化し、
 長文クエリ（チャンク化）から類似 Top-K 文書の (doc_id, score) を返す。
@@ -29,10 +29,10 @@ import csv
 import argparse
 from collections import defaultdict
 from typing import Callable, Generator, Iterable, List, Optional, Tuple
-
-import numpy as np
+from pathlib import Path
+import shutil
+from dotenv import load_dotenv
 import pandas as pd
-import torch
 
 try:
     import faiss  # type: ignore
@@ -106,16 +106,6 @@ import torch.nn as nn
 def _default_char_tokenize(text: str) -> List[str]:
     return list(text or "")
 
-def _looks_like_google_model(name: str) -> bool:
-    # 代表例を幅広に許容
-    name = (name or "").lower()
-    return (
-        "models/embedding-001" in name
-        or "text-embedding-004" in name
-        or "models/text-embedding-004" in name
-        or ("gemini" in name and "embedding" in name)
-    )
-
 class TorchTextEmbedder:
     """
     優先順:
@@ -142,22 +132,12 @@ class TorchTextEmbedder:
         self._backend_kind: str = "hash"  # "st" | "google" | "hash"
 
         # まず明示指定がGoogle系だったらGoogleを試す
-        if model_name and _looks_like_google_model(model_name):
-            if self._try_setup_google(model_name):
-                self._backend_kind = "google"
-            elif self._try_setup_st(model_name):
-                self._backend_kind = "st"
-            else:
-                self._setup_hash_backend()
-
+        if self._try_setup_google(model_name):
+            self._backend_kind = "google"
+        elif self._try_setup_st(model_name):
+            self._backend_kind = "sentence_transformer"
         else:
-            # それ以外は ST → Google → Hash
-            if self._try_setup_st(model_name):
-                self._backend_kind = "st"
-            elif model_name and self._try_setup_google(model_name):
-                self._backend_kind = "google"
-            else:
-                self._setup_hash_backend()
+            self._setup_hash_backend()
 
     # ---- Backends setup ----
     def _try_setup_st(self, model_name: Optional[str]) -> bool:
@@ -527,9 +507,6 @@ def main():
                 print(f"{rnk:>2}: doc={did}  score={sc:.6f}")
 
 
-from pathlib import Path
-import shutil
-from dotenv import load_dotenv
 
 # config.envファイルをルートに作って、APIキーを設定してください
 # LANGSMITH_API_KEY=api_key
@@ -656,7 +633,8 @@ if __name__ == "__main__":
         "--max_tokens", "4096",
         "--stride_tokens", "2048",
         "--out_csv", CFG.out_csv,
-        "--model_name", "models/text-embedding-004",
+        # "--model_name", "models/text-embedding-004",
         # "--model_name", "models/gemini-embedding-001"
+        "--model_name", "sentence-transformers/all-MiniLM-L6-v2"
     ]
     main()
