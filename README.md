@@ -1,3 +1,6 @@
+ pip install "numpy==1.26.4"
+ pip install "scipy<1.13"
+ pip install --upgrade faiss-gpu
 # rag
 Package                      Version
 ---------------------------- --------------
