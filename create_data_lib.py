@@ -484,6 +484,15 @@ def main():
                 continue
             qid = basename_wo_ext(qf)
             qtxt = read_text(os.path.join(args.query_dir, qf))
+            if i < 3942:
+                if i >3940:
+                    print(i, len(qtxt))
+                continue
+            if i < 8559:
+                if i >8557:
+                    print(i, len(qtxt))
+                continue
+
             results = search_topk_for_query(
                 index=index,
                 chunk_docids=chunk_docids,
