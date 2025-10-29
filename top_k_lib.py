@@ -255,6 +255,9 @@ def l2_normalize_inplace(x: np.ndarray):
 
 def build_ip_index(d: int, use_gpu: bool = True):
     cpu_index = faiss.IndexFlatIP(d)
+
+    # depending in torch.cuda
+    use_gpu = True
     if use_gpu and torch.cuda.is_available():
         res = faiss.StandardGpuResources()
         return faiss.index_cpu_to_gpu(res, 0, cpu_index)
