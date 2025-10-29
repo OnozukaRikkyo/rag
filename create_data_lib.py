@@ -33,6 +33,7 @@ from pathlib import Path
 import shutil
 from dotenv import load_dotenv
 import pandas as pd
+from tqdm import tqdm
 
 try:
     import faiss  # type: ignore
@@ -289,8 +290,11 @@ def build_corpus_index(
     all_vecs: List[np.ndarray] = []
     chunk_docids: List[int] = []
 
+    pbar = tqdm(total=len(files), dynamic_ncols=True, desc="Processing", unit="file", smoothing=0)
+
     # 1パスで順次エンコード（巨大コーパスでは適宜分割追加に変更可）
     for di, fname in enumerate(files):
+        pbar.update(1)  # スキップでも1件前進
         path = os.path.join(corpus_dir, fname)
         text = read_text(path)
         chunks = chunk_by_tokens(text, tokenize_fn, max_tokens, stride_tokens)
@@ -409,7 +413,7 @@ def main():
     ap.add_argument("--stride_tokens", type=int, default=None)
     ap.add_argument("--emb_batch_size", type=int, default=32)
     ap.add_argument("--use_gpu_index", action="store_true", help="FAISSをGPU化（可能なら）")
-    ap.add_argument("--per_chunk_topk", type=int, default=8, help="クエリ各チャンクで取得する近傍数")
+    ap.add_argument("--per_chunk_topk", type=int, default=2048, help="クエリ各チャンクで取得する近傍数")
     ap.add_argument("--reduce_mode", choices=["max", "mean", "topk-mean"], default="topk-mean")
     ap.add_argument("--reduce_topk", type=int, default=4, help="reduce_mode=topk-mean の k")
     ap.add_argument("--topk", type=int, default=10, help="最終出力の doc Top-K")
@@ -471,7 +475,13 @@ def main():
             raise ValueError(f"クエリが空です: {args.query_dir}")
 
         rows: List[Tuple[str, str, float, int]] = []  # (query_id, doc_id, score, rank)
-        for qf in qfiles:
+
+        pbar = tqdm(total=len(qfiles), dynamic_ncols=True, desc="query Processing", unit="file", smoothing=0)
+
+        for i, qf in enumerate(qfiles):
+            pbar.update(1)  # スキップでも1件前進
+            if i < 3942:
+                continue
             qid = basename_wo_ext(qf)
             qtxt = read_text(os.path.join(args.query_dir, qf))
             results = search_topk_for_query(
@@ -492,23 +502,30 @@ def main():
             for rnk, (doc_id, score) in enumerate(results, 1):
                 rows.append((qid, doc_id, float(score), rnk))
 
-        # 出力
-        if args.out_csv:
-            os.makedirs(os.path.dirname(args.out_csv), exist_ok=True)
-            with open(args.out_csv, "w", encoding="utf-8", newline="") as fw:
-                w = csv.writer(fw)
-                w.writerow(["query_id", "doc_id", "score", "rank"])
-                for qid, did, sc, rnk in rows:
-                    w.writerow([qid, did, f"{sc:.6f}", rnk])
-            print(f"📝 wrote: {args.out_csv}")
-        else:
-            # 画面表示（各クエリごと）
-            cur_qid = None
-            for qid, did, sc, rnk in rows:
-                if qid != cur_qid:
-                    cur_qid = qid
-                    print(f"\n=== Query: {qid} ===")
-                print(f"{rnk:>2}: doc={did}  score={sc:.6f}")
+            df = pd.DataFrame(rows, columns=["q_id", "doc_id", "cos_sim", "rank"])
+            filename = qid
+            file_path = CFG.RESULT_RANK_ROOT / (filename + ".csv")
+            df.to_csv(file_path,
+                      index=False,  # DataFrameのインデックス(0, 1, 2...)をCSVに含めない
+                      encoding='utf-8-sig')
+
+        # # 出力
+        # if args.out_csv:
+        #     os.makedirs(os.path.dirname(args.out_csv), exist_ok=True)
+        #     with open(args.out_csv, "w", encoding="utf-8", newline="") as fw:
+        #         w = csv.writer(fw)
+        #         w.writerow(["query_id", "doc_id", "score", "rank"])
+        #         for qid, did, sc, rnk in rows:
+        #             w.writerow([qid, did, f"{sc:.6f}", rnk])
+        #     print(f"📝 wrote: {args.out_csv}")
+        # else:
+        #     # 画面表示（各クエリごと）
+        #     cur_qid = None
+        #     for qid, did, sc, rnk in rows:
+        #         if qid != cur_qid:
+        #             cur_qid = qid
+        #             print(f"\n=== Query: {qid} ===")
+        #         print(f"{rnk:>2}: doc={did}  score={sc:.6f}")
 
 
 
@@ -529,7 +546,7 @@ class Config():
     REF_CONT = "ref" # 紐づき
 
     input_folder_name = "gr"
-    output_folder_name = "g_text"
+    output_folder_name = "text"
     output_folder_a = f'{OUTPUT_ROOT_DIR}/graph/csv{CSV}/{REF_CONT}/{output_folder_name}{CSV}_a'  # 出力フォルダのパスを指定
     output_folder_b = f'{OUTPUT_ROOT_DIR}/graph/csv{CSV}/{REF_CONT}/{output_folder_name}{CSV}_b'  # 出力フォルダのパスを指定
 
@@ -561,21 +578,23 @@ class Config():
     CORPUS_ROOT.mkdir(parents=True, exist_ok=True)
 
     query_folder = f"{OUTPUT_ROOT_DIR}/graph/csv{CSV}/query"
-    QUERY_ROOT = Path(OUTPUT_ROOT_DIR).resolve()
+    QUERY_ROOT = Path(query_folder).resolve()
+    QUERY_ROOT.mkdir(parents=True, exist_ok=True)
 
     out_csv = f"{OUTPUT_ROOT_DIR}/graph/csv{CSV}/results/topk_results_{CSV}.csv"
     # divide files into 3 parts
+
+    result_rank_folder = f"{OUTPUT_ROOT_DIR}/graph/csv{CSV}/result_rank"
+    RESULT_RANK_ROOT = Path(result_rank_folder).resolve()
+    RESULT_RANK_ROOT.mkdir(parents=True, exist_ok=True)
 
     total_files = 6000
     num_divide = 3
     files_per_part = total_files // num_divide
 
-
-from tqdm import tqdm
-
 CFG = Config()
 
-CREATE_DATA = True
+CREATE_DATA = False
 
 def configure_faiss():
     global CFG
@@ -616,19 +635,21 @@ def configure_faiss():
             target = CFG.CORPUS_ROOT / f"{target_file_name}.txt"
             shutil.copy(p, target)
 
+            target = CFG.QUERY_ROOT / f"{target_file_name}.txt"
+            shutil.copy(p, target)
 
-    # for i in range(CFG.total_files):
-    #     p = CFG.QUERY_ROOT / f"{i}.txt"
-    #     if not p.exists():
-    #         continue
-    #     target_file_name = claim_column[i]
-    #
-    #     target = CFG.QUERY_ROOT / f"{target_file_name}.txt"
-    #     shutil.copy(p, target)
+        #
+        # for i in range(CFG.total_files):
+        #     p = CFG.QUERY_ROOT / f"{i}.txt"
+        #     if not p.exists():
+        #         continue
+        #     target_file_name = claim_column[i]
+        #
+        #     target = CFG.QUERY_ROOT / f"{target_file_name}.txt"
+        #     shutil.copy(p, target)
 
 if __name__ == "__main__":
-    INIT = False
-    if INIT:
+    if CREATE_DATA:
         configure_faiss()
     import sys
     # 実行引数の設定
@@ -638,10 +659,10 @@ if __name__ == "__main__":
         "--query_dir", CFG.query_folder,
         "--topk", "100",
         "--max_tokens", "4096",
-        "--stride_tokens", "2048",
+        "--stride_tokens", "512",
         "--out_csv", CFG.out_csv,
         # "--model_name", "models/text-embedding-004",
         # "--model_name", "models/gemini-embedding-001"
         "--model_name", "sentence-transformers/all-MiniLM-L6-v2"
     ]
-#    main()
+    main()
