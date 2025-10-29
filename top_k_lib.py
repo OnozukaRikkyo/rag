@@ -641,4 +641,4 @@ if __name__ == "__main__":
         # "--model_name", "models/gemini-embedding-001"
         "--model_name", "sentence-transformers/all-MiniLM-L6-v2"
     ]
-    main()
+#    main()
